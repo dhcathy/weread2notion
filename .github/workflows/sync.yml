@@ -1,0 +1,133 @@
+name: WeRead to Notion Sync
+
+on:
+  schedule:
+    # 北京时间每天早上8点运行
+    - cron: "0 8 * * *"
+  # 允许从Actions标签手动触发
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # 添加权限设置
+    permissions:
+      contents: write
+
+    steps:
+      # 检出主分支（包含代码）
+      # 注意: 当原仓库更新数据库模板时，远程分支的fork会自动检测到变更
+      # 并会强制执行全量同步，以确保新模板的内容正确更新
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          path: main-branch
+
+      # 检查data分支是否已存在
+      - name: Check if data branch exists
+        id: check-data-branch
+        continue-on-error: true
+        run: |
+          git ls-remote --heads origin data && echo "Data branch exists" || echo "Data branch does NOT exist"
+          git ls-remote --heads origin data && echo "::set-output name=exists::true" || echo "::set-output name=exists::false"
+
+      # 如果数据分支已存在，则检出到.data目录
+      - name: Checkout data branch if exists
+        if: steps.check-data-branch.outputs.exists == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: .data-branch
+
+      # 如果data分支不存在，创建一个空的data分支
+      - name: Create or update data branch
+        if: steps.check-data-branch.outputs.exists != 'true'
+        run: |
+          mkdir -p .data-branch
+          cd .data-branch
+          git init
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          # 使用GITHUB_TOKEN进行认证
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+
+          # 尝试拉取远程分支以避免冲突
+          git fetch origin data || echo "No data branch to fetch"
+
+          if git show-ref --verify --quiet refs/remotes/origin/data; then
+            # 如果远程分支存在，则基于该分支创建本地分支
+            echo "Remote data branch exists, checking it out"
+            git checkout -b data origin/data
+          else
+            # 如果远程分支不存在，创建新分支
+            echo "Creating new data branch"
+            git checkout -b data
+            mkdir -p data/sync-state
+            touch data/sync-state/.gitkeep
+            git add .
+            git commit -m "Create data branch for sync state"
+            git push -u origin data
+          fi
+
+      # 复制同步状态到工作目录
+      - name: Copy sync state to working directory
+        run: |
+          mkdir -p main-branch/data
+          if [ -d ".data-branch/data" ]; then
+            cp -r .data-branch/data/* main-branch/data/ 2>/dev/null || true
+          fi
+
+      # 切换到主分支目录并设置Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: main-branch/package-lock.json
+
+      # 在主分支目录安装依赖并运行同步
+      - name: Install dependencies and run sync
+        working-directory: main-branch
+        run: |
+          npm ci
+          npm run sync
+        env:
+          WEREAD_COOKIE: ${{ secrets.WEREAD_COOKIE }}
+          NOTION_INTEGRATIONS: ${{ secrets.NOTION_INTEGRATIONS }}
+          DATABASE_ID: ${{ secrets.DATABASE_ID }}
+          NOTION_VERSION: ${{ secrets.NOTION_VERSION }}
+          CONFIG_DATABASE_ID: ${{ secrets.CONFIG_DATABASE_ID }}
+
+      # 将更新的同步状态保存到data分支
+      - name: Update sync state in data branch
+        run: |
+          mkdir -p .data-branch/data/sync-state
+          # 确保同步状态目录存在
+          mkdir -p main-branch/data/sync-state
+
+          # 复制所有数据文件，包括同步状态和数据库版本文件
+          cp -r main-branch/data/* .data-branch/data/ 2>/dev/null || true
+
+          cd .data-branch
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          # 重新设置remote以使用token认证
+          git remote set-url origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+
+          # 添加所有数据文件，包括数据库版本文件
+          git add data/
+          git status
+
+          if git diff --staged --quiet; then
+            echo "数据没有变化"
+          else
+            # 检查数据库版本是否已更新
+            if [ -f "data/sync-state/db-version.json" ]; then
+              echo "数据库版本文件已更新"
+              cat data/sync-state/db-version.json
+            fi
+            
+            echo "同步状态有更新，提交到data分支"
+            git commit -m "更新同步状态和数据库版本 [skip ci]"
+            git push origin data
+          fi
