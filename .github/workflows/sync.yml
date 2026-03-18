@@ -83,7 +83,6 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: main-branch/package-lock.json
 
       # 在主分支目录安装依赖并运行同步
       - name: Install dependencies and run sync
