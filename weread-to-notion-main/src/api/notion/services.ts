@@ -163,14 +163,14 @@ export async function writeBookToNotion(
     const translator = bookData.translator || "";
 
     // 处理作者字段 - 支持多选
-    const authors = bookData.author ? bookData.author.split(" ").filter(a => a.trim()) : ["未知作者"];
-    const authorOptions = authors.map(author => ({
+    const authors = bookData.author ? bookData.author.split(" ").filter((a: string) => a.trim()) : ["未知作者"];
+    const authorOptions = authors.map((author: string) => ({
       name: author.trim()
     }));
 
     // 处理类型字段 - 支持多选
-    const categories = bookData.category ? bookData.category.split(",").map(c => c.trim()).filter(c => c) : ["未知类型"];
-    const categoryOptions = categories.map(category => ({
+    const categories = bookData.category ? bookData.category.split(",").map((c: string) => c.trim()).filter((c: string) => c) : ["未知类型"];
+    const categoryOptions = categories.map((category: string) => ({
       name: category
     }));
 
