@@ -20,8 +20,18 @@ jobs:
       # 并会强制执行全量同步，以确保新模板的内容正确更新
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          path: main-branch
+
+      # 检查是否存在嵌套的weread-to-notion-main目录
+      - name: Check directory structure
+        id: check-directory
+        run: |
+          if [ -d "weread-to-notion-main" ]; then
+            echo "::set-output name=has_nested::true"
+            echo "Found nested weread-to-notion-main directory"
+          else
+            echo "::set-output name=has_nested::false"
+            echo "No nested directory found"
+          fi
 
       # 检查data分支是否已存在
       - name: Check if data branch exists
@@ -69,24 +79,35 @@ jobs:
             git push -u origin data
           fi
 
+      # 确定工作目录
+      - name: Determine working directory
+        id: determine-workdir
+        run: |
+          if [ "${{ steps.check-directory.outputs.has_nested }}" == "true" ]; then
+            echo "::set-output name=workdir::weread-to-notion-main"
+          else
+            echo "::set-output name=workdir::."
+          fi
+
       # 复制同步状态到工作目录
       - name: Copy sync state to working directory
         run: |
-          mkdir -p main-branch/data
+          WORKDIR="${{ steps.determine-workdir.outputs.workdir }}"
+          mkdir -p "$WORKDIR/data"
           if [ -d ".data-branch/data" ]; then
-            cp -r .data-branch/data/* main-branch/data/ 2>/dev/null || true
+            cp -r .data-branch/data/* "$WORKDIR/data/" 2>/dev/null || true
           fi
 
-      # 切换到主分支目录并设置Node.js
+      # 切换到工作目录并设置Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
 
-      # 在主分支目录安装依赖并运行同步
+      # 在工作目录安装依赖并运行同步
       - name: Install dependencies and run sync
-        working-directory: main-branch
+        working-directory: ${{ steps.determine-workdir.outputs.workdir }}
         run: |
           npm ci
           npm run sync
@@ -100,12 +121,13 @@ jobs:
       # 将更新的同步状态保存到data分支
       - name: Update sync state in data branch
         run: |
+          WORKDIR="${{ steps.determine-workdir.outputs.workdir }}"
           mkdir -p .data-branch/data/sync-state
           # 确保同步状态目录存在
-          mkdir -p main-branch/data/sync-state
+          mkdir -p "$WORKDIR/data/sync-state"
 
           # 复制所有数据文件，包括同步状态和数据库版本文件
-          cp -r main-branch/data/* .data-branch/data/ 2>/dev/null || true
+          cp -r "$WORKDIR/data/*" .data-branch/data/ 2>/dev/null || true
 
           cd .data-branch
           git config --global user.name "GitHub Actions"
