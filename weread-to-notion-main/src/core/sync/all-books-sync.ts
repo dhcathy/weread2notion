@@ -121,12 +121,13 @@ export async function syncAllBooks(
       const syncState = {
         bookId: book.bookId,
         lastSyncTime: Date.now(),
+        lastUpdateTime: book.progressData?.updateTime || 0,
         highlightsSynckey: syncContentResult.highlightsSynckey,
         thoughtsSynckey: syncContentResult.thoughtsSynckey,
       };
       saveSyncState(syncState);
       console.log(
-        `已保存同步状态，highlightsSynckey: ${syncContentResult.highlightsSynckey}, thoughtsSynckey: ${syncContentResult.thoughtsSynckey}`
+        `已保存同步状态，highlightsSynckey: ${syncContentResult.highlightsSynckey}, thoughtsSynckey: ${syncContentResult.thoughtsSynckey}, lastUpdateTime: ${new Date((book.progressData?.updateTime || 0) * 1000).toLocaleString()}`
       );
 
       if (syncContentResult.success) {
