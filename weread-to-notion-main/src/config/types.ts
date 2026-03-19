@@ -16,6 +16,7 @@ export enum ReadStatus {
 export interface SyncState {
   bookId: string;
   lastSyncTime: number;
+  lastUpdateTime: number;
   highlightsSynckey: string;
   thoughtsSynckey: string;
 }
