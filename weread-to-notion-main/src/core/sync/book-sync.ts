@@ -161,10 +161,25 @@ export async function syncSingleBook(
     }
 
     // 获取阅读进度信息以更新阅读状态
+    let progressInfo: any = null;
+    let bookUpdateTime: number = 0;
+    
     try {
-      const progressInfo = await getBookProgress(cookie, bookId);
+      progressInfo = await getBookProgress(cookie, bookId);
       
       if (progressInfo && progressInfo.book) {
+        // 获取书籍更新时间
+        bookUpdateTime = progressInfo.book.updateTime || 0;
+        
+        // 加载同步状态
+        const syncState = getSyncState(bookId);
+        
+        // 检查是否需要增量同步
+        if (useIncremental && bookUpdateTime > 0 && bookUpdateTime <= syncState.lastUpdateTime) {
+          console.log(`《${bookInfo.title}》没有更新（上次更新时间: ${new Date(syncState.lastUpdateTime * 1000).toLocaleString()}，当前更新时间: ${new Date(bookUpdateTime * 1000).toLocaleString()}），跳过同步`);
+          return true;
+        }
+        
         // 使用阅读进度API的信息更新书籍状态
         const progress = progressInfo.book.progress || 0;
         const isStarted = progressInfo.book.isStartReading === 1;
@@ -187,19 +202,16 @@ export async function syncSingleBook(
           readingTime: progressInfo.book.readingTime,
           startReadingTime: progressInfo.book.startReadingTime,
           finishTime: progressInfo.book.finishTime,
-          updateTime: progressInfo.book.updateTime
+          updateTime: bookUpdateTime
         };
-        
-        // 保存评分信息
-        if (progressInfo.book.newRatingDetail && progressInfo.book.newRatingDetail.myRating) {
-          bookInfo.rating = progressInfo.book.newRatingDetail.myRating;
-          console.log(`获取到评分: ${bookInfo.rating}星`);
-        }
       }
     } catch (error: any) {
       console.error(`获取《${bookInfo.title}》阅读进度失败: ${error.message}`);
-      // 如果获取失败，使用默认的状态
-      bookInfo.finishReadingStatus = bookInfo.finishReading ? "已读完" : "未读完";
+    }
+
+    // 如果获取失败，使用默认的状态
+    if (!bookInfo.finishReadingStatus) {
+      bookInfo.finishReadingStatus = bookInfo.finishReading ? "✅已读" : "📕未读";
     }
 
     // 检查书籍是否已存在
@@ -207,7 +219,8 @@ export async function syncSingleBook(
       apiKey,
       databaseId,
       bookInfo.title,
-      bookInfo.author
+      bookInfo.author,
+      bookId
     );
 
     let finalPageId: string;
@@ -243,12 +256,13 @@ export async function syncSingleBook(
       const syncState = {
         bookId,
         lastSyncTime: Date.now(),
+        lastUpdateTime: bookUpdateTime,
         highlightsSynckey: syncContentResult.highlightsSynckey,
         thoughtsSynckey: syncContentResult.thoughtsSynckey,
       };
       saveSyncState(syncState);
       console.log(
-        `已保存同步状态，highlightsSynckey: ${syncContentResult.highlightsSynckey}, thoughtsSynckey: ${syncContentResult.thoughtsSynckey}`
+        `已保存同步状态，highlightsSynckey: ${syncContentResult.highlightsSynckey}, thoughtsSynckey: ${syncContentResult.thoughtsSynckey}, lastUpdateTime: ${new Date(bookUpdateTime * 1000).toLocaleString()}`
       );
     }
 
