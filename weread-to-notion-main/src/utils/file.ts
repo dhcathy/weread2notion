@@ -57,6 +57,7 @@ export function getSyncState(bookId: string): SyncState {
   return {
     bookId,
     lastSyncTime: 0,
+    lastUpdateTime: 0,
     highlightsSynckey: "0",
     thoughtsSynckey: "0",
   };
