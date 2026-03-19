@@ -82,16 +82,7 @@ function formatReadingTime(seconds: number): string {
   }
 }
 
-/**
- * 格式化微信读书评分
- * @param rating 评分数值 (1-5)
- * @returns 格式化后的评分字符串
- */
-function formatWeReadRating(rating: number): string {
-  if (rating >= 4) return "推荐";
-  if (rating >= 3) return "一般";
-  return "不行";
-}
+
 
 /**
  * 检查书籍是否已存在于Notion数据库中
@@ -100,7 +91,8 @@ export async function checkBookExistsInNotion(
   apiKey: string,
   databaseId: string,
   bookTitle: string,
-  bookAuthor: string
+  bookAuthor: string,
+  bookId?: string
 ): Promise<BookExistsResult> {
   try {
     console.log(`检查书籍《${bookTitle}》是否已存在于Notion数据库...`);
@@ -108,15 +100,30 @@ export async function checkBookExistsInNotion(
     // 设置请求头
     const headers = getNotionHeaders(apiKey, NOTION_VERSION);
 
-    // 构建查询 - 通过书名来匹配（因为作者现在是多选）
-    const queryData = {
-      filter: {
-        property: "书名",
-        title: {
-          contains: bookTitle,
+    // 构建查询 - 优先使用书籍ID进行匹配
+    let queryData: any;
+    if (bookId) {
+      console.log(`使用书籍ID ${bookId} 进行检查`);
+      queryData = {
+        filter: {
+          property: "书籍ID",
+          rich_text: {
+            contains: bookId,
+          },
         },
-      },
-    };
+      };
+    } else {
+      // 如果没有书籍ID，回退到使用书名匹配
+      console.log(`没有书籍ID，使用书名进行检查`);
+      queryData = {
+        filter: {
+          property: "书名",
+          title: {
+            contains: bookTitle,
+          },
+        },
+      };
+    }
 
     // 发送查询请求
     const response = await axios.post(
@@ -156,7 +163,8 @@ export async function writeBookToNotion(
       apiKey,
       databaseId,
       bookData.title,
-      bookData.author || "未知作者"
+      bookData.author || "未知作者",
+      bookData.bookId || bookData.id
     );
     
     // 从bookData中提取译者信息 (通常不在基本元数据中，可能需要单独处理)
@@ -176,6 +184,17 @@ export async function writeBookToNotion(
 
     // 构建要写入的数据
     const properties = {
+      // 书籍ID是rich_text类型，用于唯一标识
+      书籍ID: {
+        rich_text: [
+          {
+            type: "text",
+            text: {
+              content: bookData.bookId || bookData.id || "",
+            },
+          },
+        ],
+      },
       // 书名是title类型
       书名: {
         title: [
@@ -267,20 +286,56 @@ export async function writeBookToNotion(
       阅读进度: {
         number: bookData.progressData?.progress || bookData.progress || 0,
       },
-      // 我的评分 - 从微信读书获取
-      我的评分: {
-        select: bookData.rating ? {
-          name: formatWeReadRating(bookData.rating)
-        } : null,
-      },
+
     };
     
     if (existCheck.exists && existCheck.pageId) {
       console.log(`书籍已存在，将更新现有页面: ${existCheck.pageId}`);
+      
+      // 只更新API获取的字段，保留用户手动填写的数据
+      // 构建要更新的字段，只包含API提供的动态数据
+      const updateProperties: any = {};
+      
+      // 书籍ID - 保持不变，用于唯一标识
+      if (bookData.bookId || bookData.id) {
+        updateProperties['书籍ID'] = properties['书籍ID'];
+      }
+      
+      // 阅读状态 - 动态更新
+      updateProperties['阅读状态'] = properties['阅读状态'];
+      
+      // 开始阅读日期 - 动态更新
+      if (bookData.progressData?.startReadingTime) {
+        updateProperties['开始阅读'] = properties['开始阅读'];
+      }
+      
+      // 完成阅读日期 - 动态更新
+      if (bookData.progressData?.finishTime) {
+        updateProperties['完成阅读'] = properties['完成阅读'];
+      }
+      
+      // 阅读总时长 - 动态更新
+      if (bookData.progressData?.readingTime) {
+        updateProperties['阅读总时长'] = properties['阅读总时长'];
+      }
+      
+      // 阅读进度 - 动态更新
+      if (bookData.progressData?.progress !== undefined || bookData.progress !== undefined) {
+        updateProperties['阅读进度'] = properties['阅读进度'];
+      }
+      
+      // 注意：不更新以下字段，保留用户手动填写的数据
+      // - 书名
+      // - 作者
+      // - 译者
+      // - 类型
+      // - 封面
+      // - 评分
+      
       // 更新现有页面
       const headers = getNotionHeaders(apiKey, NOTION_VERSION);
       await axios.patch(`${NOTION_API_BASE_URL}/pages/${existCheck.pageId}`, {
-        properties
+        properties: updateProperties
       }, {
         headers
       });
