@@ -3,7 +3,7 @@
  */
 
 import { BookContentSyncResult } from "../../config/types";
-import { saveSyncState } from "../../utils/file";
+import { saveSyncState, getSyncState } from "../../utils/file";
 import {
   getBookHighlightsFormatted,
   getBookThoughtsFormatted,
