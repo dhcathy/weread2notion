@@ -58,7 +58,8 @@ export async function syncAllBooks(
         apiKey,
         databaseId,
         book.title,
-        book.author
+        book.author,
+        book.bookId
       );
 
       let finalPageId: string;
